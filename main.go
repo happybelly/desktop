@@ -23,7 +23,9 @@ import (
 )
 
 type FileUploadResponse struct {
-	ID string
+	ID      string
+	Result  int
+	Message string
 }
 
 var randGen *rand.Rand
@@ -66,14 +68,17 @@ func grind(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", randID))
 
 		err = cmd.Run()
+
+		msg := FileUploadResponse{ID: randID, Result: 0, Message: "File uploaded successfully"}
+
 		if err != nil {
-			log.Fatal(err)
+			//log.Fatal(err)
+			fmt.Println("Fact extractor crashed on ", randID)
+			msg.Result = -1
+			msg.Message = "Fact extractor crashed."
 		}
 
-		b, err := json.Marshal(FileUploadResponse{ID: randID})
-		if err != nil {
-			fmt.Println("json err:", err)
-		}
+		b, _ := json.Marshal(msg)
 
 		w.Write(b)
 	}
