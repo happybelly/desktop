@@ -62,7 +62,7 @@ func grind(w http.ResponseWriter, r *http.Request) {
 		io.Copy(f, file)
 		f.Close()
 
-		log.Printf("Executing java -jar factExtractor.jar %s %s", workspaceDir+fmt.Sprintf("%s.fact.json", randID), storageLocation)
+		log.Printf("Executing java -jar factExtractor.jar -o %s -pdf %s", workspaceDir+fmt.Sprintf("%s.fact.json", randID), storageLocation)
 		cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", randID))
 
 		err = cmd.Run()
