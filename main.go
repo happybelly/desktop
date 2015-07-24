@@ -9,9 +9,11 @@
 package main
 
 import (
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -84,6 +86,78 @@ func grind(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func HTTPDownload(uri string) ([]byte, error) {
+	fmt.Printf("HTTPDownload From: %s.\n", uri)
+	res, err := http.Get(uri)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer res.Body.Close()
+	d, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("ReadFile: Size of download: %d\n", len(d))
+	return d, err
+}
+
+func WriteFile(dst string, d []byte) error {
+	fmt.Printf("WriteFile: Size of download: %d\n", len(d))
+	err := ioutil.WriteFile(dst, d, 0444)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return err
+}
+
+func DownloadToFile(uri string, dst string) {
+	log.Printf("DownloadToFile From: %s.\n", uri)
+	if d, err := HTTPDownload(uri); err == nil {
+		log.Printf("Downloaded %s.\n", uri)
+		if WriteFile(dst, d) == nil {
+			log.Printf("Saved %s as %s\n", uri, dst)
+		}
+	}
+}
+
+// Grinds the PDF that has a fixed URL and sends back the id
+func onlineGrind(w http.ResponseWriter, r *http.Request) {
+	downloadURL := r.URL.Query().Get("url")
+
+	h := md5.New()
+	io.WriteString(h, downloadURL)
+	randID := fmt.Sprintf("%x", h.Sum(nil))
+
+	storageLocation := workspaceDir + randID + ".pdf"
+
+	if _, err := os.Stat(storageLocation); os.IsNotExist(err) {
+
+		DownloadToFile(downloadURL, storageLocation)
+
+		log.Printf("Executing java -jar factExtractor.jar -o %s -pdf %s", workspaceDir+fmt.Sprintf("%s.fact.json", randID), storageLocation)
+		cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", randID))
+
+		err := cmd.Run()
+
+		msg := FileUploadResponse{ID: randID, Result: 0, Message: "File ground successfully."}
+
+		if err != nil {
+			//log.Fatal(err)
+			fmt.Println("Fact extractor crashed on ", randID)
+			msg.Result = -1
+			msg.Message = "Fact extractor crashed."
+
+			b, _ := json.Marshal(msg)
+
+			w.Write(b)
+		} else {
+			http.Redirect(w, r, fmt.Sprintf("/get/%s.fact.json", randID), 303)
+		}
+	} else {
+		http.Redirect(w, r, fmt.Sprintf("/get/%s.fact.json", randID), 303)
+	}
+}
+
 func main() {
 	_, err := exec.LookPath("java")
 	if err != nil {
@@ -101,6 +175,7 @@ func main() {
 
 	statics := http.FileServer(http.Dir("./static"))
 	http.HandleFunc("/grind", grind)
+	http.HandleFunc("/onlinegrind", onlineGrind)
 	http.Handle("/get/", http.StripPrefix("/get", fs))
 	http.Handle("/static/", http.StripPrefix("/static", statics))
 
