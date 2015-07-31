@@ -17,14 +17,15 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
-	//	"strings"
 )
 
-type FileUploadResponse struct {
+type ResponseStruct struct {
 	ID      string
 	Result  int
 	Message string
@@ -44,51 +45,16 @@ func UserHomeDir() string {
 	return os.Getenv("HOME")
 }
 
-// Grinds the PDF that the extension sent and sends back the id
-func grind(w http.ResponseWriter, r *http.Request) {
-
-	if r.Method == "POST" {
-		r.ParseMultipartForm(32 << 20)
-		file, _, err := r.FormFile("uploadfile")
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		defer file.Close()
-		randID := fmt.Sprintf("%d", randGen.Int63())
-		storageLocation := workspaceDir + randID + ".pdf"
-		f, err := os.OpenFile(storageLocation, os.O_WRONLY|os.O_CREATE, 0666)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		io.Copy(f, file)
-		f.Close()
-
-		log.Printf("Executing java -jar factExtractor.jar -o %s -pdf %s", workspaceDir+fmt.Sprintf("%s.fact.json", randID), storageLocation)
-		cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", randID))
-
-		err = cmd.Run()
-
-		msg := FileUploadResponse{ID: randID, Result: 0, Message: "File uploaded successfully"}
-
-		if err != nil {
-			//log.Fatal(err)
-			fmt.Println("Fact extractor crashed on ", randID)
-			msg.Result = -1
-			msg.Message = "Fact extractor crashed."
-		}
-
-		b, _ := json.Marshal(msg)
-
-		w.Write(b)
-	}
-}
-
 func HTTPDownload(uri string) ([]byte, error) {
 	fmt.Printf("HTTPDownload From: %s.\n", uri)
-	res, err := http.Get(uri)
+
+	cookieJar, _ := cookiejar.New(nil)
+
+	client := &http.Client{
+		Jar: cookieJar,
+	}
+
+	res, err := client.Get(uri)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -138,8 +104,8 @@ func onlineGrind(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", randID))
 
 		err := cmd.Run()
-
-		msg := FileUploadResponse{ID: randID, Result: 0, Message: "File ground successfully."}
+		log.Printf("File is ground.")
+		msg := ResponseStruct{ID: randID, Result: 0, Message: "File ground successfully."}
 
 		if err != nil {
 			//log.Fatal(err)
@@ -158,6 +124,28 @@ func onlineGrind(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func rawTextFileReturn(w http.ResponseWriter, r *http.Request) {
+	p := strings.Split(r.URL.Path, "/")
+	fn := workspaceDir + p[len(p)-1]
+	if _, err := os.Stat(fn); os.IsNotExist(err) {
+		msg := ResponseStruct{ID: "0", Result: 404, Message: "File not found."}
+		b, _ := json.Marshal(msg)
+
+		w.Write(b)
+	} else {
+		f, _ := os.Open(fn)
+		defer f.Close()
+		io.Copy(w, f)
+	}
+}
+
+func addDefaultHeaders(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		fn(w, r)
+	}
+}
+
 func main() {
 	_, err := exec.LookPath("java")
 	if err != nil {
@@ -170,14 +158,10 @@ func main() {
 
 	os.MkdirAll(workspaceDir, os.ModeDir|0777)
 
-	fs := http.FileServer(http.Dir(workspaceDir))
 	log.Printf("Workspace directory is %s", workspaceDir)
 
-	statics := http.FileServer(http.Dir("./static"))
-	http.HandleFunc("/grind", grind)
-	http.HandleFunc("/onlinegrind", onlineGrind)
-	http.Handle("/get/", http.StripPrefix("/get", fs))
-	http.Handle("/static/", http.StripPrefix("/static", statics))
+	http.HandleFunc("/onlinegrind", addDefaultHeaders(onlineGrind))
+	http.Handle("/get/", addDefaultHeaders(rawTextFileReturn))
 
 	err = http.ListenAndServe(":3333", nil) // set listen port
 	if err != nil {
