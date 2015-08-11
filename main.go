@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -99,28 +100,68 @@ func onlineGrind(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(storageLocation); os.IsNotExist(err) {
 
 		DownloadToFile(downloadURL, storageLocation)
+		ProcessPDFFile(storageLocation, randID, w, r)
 
-		log.Printf("Executing java -jar factExtractor.jar -o %s -pdf %s", workspaceDir+fmt.Sprintf("%s.fact.json", randID), storageLocation)
-		cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", randID))
-
-		err := cmd.Run()
-		log.Printf("File is ground.")
-		msg := ResponseStruct{ID: randID, Result: 0, Message: "File ground successfully."}
-
-		if err != nil {
-			//log.Fatal(err)
-			fmt.Println("Fact extractor crashed on ", randID)
-			msg.Result = -1
-			msg.Message = "Fact extractor crashed."
-
-			b, _ := json.Marshal(msg)
-
-			w.Write(b)
-		} else {
-			http.Redirect(w, r, fmt.Sprintf("/get/%s.fact.json", randID), 303)
-		}
 	} else {
 		http.Redirect(w, r, fmt.Sprintf("/get/%s.fact.json", randID), 303)
+	}
+}
+
+func ProcessPDFFile(storageLocation string, fileID string, w http.ResponseWriter, r *http.Request) {
+	log.Printf("Executing java -jar factExtractor.jar -o %s -pdf %s", workspaceDir+fmt.Sprintf("%s.fact.json", fileID), storageLocation)
+	cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", fileID))
+
+	err := cmd.Run()
+	log.Printf("File is ground.")
+	msg := ResponseStruct{ID: fileID, Result: 0, Message: "File ground successfully."}
+
+	if err != nil {
+		//log.Fatal(err)
+		fmt.Println("Fact extractor crashed on ", fileID)
+		msg.Result = -1
+		msg.Message = "Fact extractor crashed."
+
+		b, _ := json.Marshal(msg)
+
+		w.Write(b)
+	} else {
+		http.Redirect(w, r, fmt.Sprintf("/get/%s.fact.json", fileID), 303)
+	}
+
+}
+
+func processPDFBlob(w http.ResponseWriter, r *http.Request) {
+
+	rURI, _ := url.Parse(r.RequestURI)
+	fileID := rURI.Query().Get("uri")
+	storageLocation := workspaceDir + fileID + ".pdf"
+
+	if _, err := os.Stat(storageLocation); os.IsNotExist(err) {
+		file, _, err := r.FormFile("data")
+
+		if err != nil {
+			fmt.Fprintln(w, err)
+			return
+		}
+		defer file.Close()
+
+		out, err := os.Create(storageLocation)
+		if err != nil {
+			fmt.Fprintf(w, "Unable to create the file for writing. Check your write access privilege")
+			return
+		}
+
+		defer out.Close()
+
+		// write the content from POST to the file
+		_, err = io.Copy(out, file)
+		if err != nil {
+			fmt.Fprintln(w, err)
+		}
+
+		ProcessPDFFile(storageLocation, fileID, w, r)
+	} else {
+		http.Redirect(w, r, fmt.Sprintf("/get/%s.fact.json", fileID), 303)
 	}
 }
 
@@ -162,6 +203,7 @@ func main() {
 
 	http.HandleFunc("/onlinegrind", addDefaultHeaders(onlineGrind))
 	http.Handle("/get/", addDefaultHeaders(rawTextFileReturn))
+	http.Handle("/blobsub", addDefaultHeaders(processPDFBlob))
 
 	err = http.ListenAndServe(":3333", nil) // set listen port
 	if err != nil {
