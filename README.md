@@ -1,9 +1,10 @@
-// SwartzNotes standalone package for clients
-// ------------------------------------------
-// Licensed under an Apache license
+SwartzNotes standalone package for clients
+===
 
-// The package provides minimal support for the browser extension to work
-// Also serves as a bridge for the fact extractor java package to work
+Licensed under an Apache license
+
+The package provides minimal support for the browser extension to work
+It also serves as a bridge for the fact extractor java package to work
 
 
 Architecture
