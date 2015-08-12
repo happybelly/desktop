@@ -219,7 +219,7 @@ func main() {
 
 	// If we really are concerned about security, make this 127.0.0.1:3333
 	// TODO: HUAN I'm not sure we should do the 127.0.0.1 or not.
-	err = http.ListenAndServe(":3333", nil) // set listen port
+	err = http.ListenAndServe("127.0.0.1:3333", nil) // set listen port
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
