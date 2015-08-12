@@ -35,6 +35,7 @@ type ResponseStruct struct {
 var randGen *rand.Rand
 var workspaceDir string
 
+// Returns the user home directory
 func UserHomeDir() string {
 	if runtime.GOOS == "windows" {
 		home := os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
@@ -46,6 +47,7 @@ func UserHomeDir() string {
 	return os.Getenv("HOME")
 }
 
+// Downloads a file from a location on the net
 func HTTPDownload(uri string) ([]byte, error) {
 	fmt.Printf("HTTPDownload From: %s.\n", uri)
 
@@ -68,6 +70,7 @@ func HTTPDownload(uri string) ([]byte, error) {
 	return d, err
 }
 
+// Write to file dst with array of bytes
 func WriteFile(dst string, d []byte) error {
 	fmt.Printf("WriteFile: Size of download: %d\n", len(d))
 	err := ioutil.WriteFile(dst, d, 0444)
@@ -77,6 +80,7 @@ func WriteFile(dst string, d []byte) error {
 	return err
 }
 
+// Download from url uri to save at dst
 func DownloadToFile(uri string, dst string) {
 	log.Printf("DownloadToFile From: %s.\n", uri)
 	if d, err := HTTPDownload(uri); err == nil {
@@ -107,6 +111,7 @@ func onlineGrind(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Given a file and its ID, call FactExtractor to extract the fact and send back the json file
 func ProcessPDFFile(storageLocation string, fileID string, w http.ResponseWriter, r *http.Request) {
 	log.Printf("Executing java -jar factExtractor.jar -o %s -pdf %s", workspaceDir+fmt.Sprintf("%s.fact.json", fileID), storageLocation)
 	cmd := exec.Command("java", "-jar", "factExtractor.jar", "-pdf", storageLocation, "-o", workspaceDir+fmt.Sprintf("%s.fact.json", fileID))
@@ -130,12 +135,16 @@ func ProcessPDFFile(storageLocation string, fileID string, w http.ResponseWriter
 
 }
 
+// Saves the PDF blob that is sent by the extension
 func processPDFBlob(w http.ResponseWriter, r *http.Request) {
 
 	rURI, _ := url.Parse(r.RequestURI)
 	fileID := rURI.Query().Get("uri")
+
 	storageLocation := workspaceDir + fileID + ".pdf"
 
+	// We sniff if the pdf file is already there, if it were there previously,
+	// the facts file has to be there too
 	if _, err := os.Stat(storageLocation); os.IsNotExist(err) {
 		file, _, err := r.FormFile("data")
 
@@ -165,6 +174,7 @@ func processPDFBlob(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Returns a raw text file
 func rawTextFileReturn(w http.ResponseWriter, r *http.Request) {
 	p := strings.Split(r.URL.Path, "/")
 	fn := workspaceDir + p[len(p)-1]
@@ -180,6 +190,7 @@ func rawTextFileReturn(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Add the default headers so that we calm firefox down
 func addDefaultHeaders(fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -187,6 +198,7 @@ func addDefaultHeaders(fn http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// Main function, basically it creates an API server that listens on port 3333
 func main() {
 	_, err := exec.LookPath("java")
 	if err != nil {
@@ -205,6 +217,8 @@ func main() {
 	http.Handle("/get/", addDefaultHeaders(rawTextFileReturn))
 	http.Handle("/blobsub", addDefaultHeaders(processPDFBlob))
 
+	// If we really are concerned about security, make this 127.0.0.1:3333
+	// TODO: HUAN I'm not sure we should do the 127.0.0.1 or not.
 	err = http.ListenAndServe(":3333", nil) // set listen port
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
